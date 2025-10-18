@@ -9,6 +9,9 @@
 [Ll]ogs/
 UserSettings/
 MemoryCaptures/
+
+# Ignore TextMesh Pro assets
+[Aa]ssets/TextMesh Pro/
  
 # ============ #
 # OS generated #
