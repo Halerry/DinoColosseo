@@ -5,8 +5,8 @@ public class GridManager : MonoBehaviour
     public static GridManager Instance { get; private set; }
 
     [Header("Grid Settings")]
-    public int width = 8;
-    public int height = 8;
+    public int width = 12;
+    public int height = 12;
     public float tileSize = 1f;
     public GameObject tilePrefab;
 
