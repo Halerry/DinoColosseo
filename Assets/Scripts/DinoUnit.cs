@@ -24,6 +24,7 @@ public class DinoUnit : MonoBehaviour
     [Header("State")]
     public bool hasMoved = false;
     public bool hasAttacked = false;
+    public bool isDefending = false;
     public Tile currentTile;
     public bool isMoving = false;
 
@@ -35,7 +36,7 @@ public class DinoUnit : MonoBehaviour
     [Header("UI")]
     public HealthBar healthBar;
 
-    // Check if unit has finished all actions
+    // Check if unit has finished all actions (only move + attack matter)
     public bool HasFinishedTurn => hasMoved && hasAttacked;
     public bool CanMove => !hasMoved && !isMoving;
     public bool CanAttack => !hasAttacked;
@@ -172,8 +173,30 @@ public class DinoUnit : MonoBehaviour
         return GridManager.Instance.GetTile(x, z);
     }
 
+    public void Heal(int amount)
+    {
+        currentHealth += amount;
+        currentHealth = Mathf.Min(currentHealth, maxHealth);
+
+        Debug.Log($"{dinoName} healed {amount} HP! HP: {currentHealth}/{maxHealth}");
+
+        // Update health bar
+        if (healthBar != null)
+        {
+            healthBar.SetHealth(currentHealth);
+        }
+    }
+
     public void TakeDamage(int damage)
     {
+        // Check if defending
+        if (isDefending)
+        {
+            Debug.Log($"{dinoName} blocked the attack with Defend!");
+            isDefending = false;
+            return;
+        }
+
         int actualDamage = Mathf.Max(1, damage - defense);
         currentHealth -= actualDamage;
         currentHealth = Mathf.Max(0, currentHealth);
@@ -196,13 +219,21 @@ public class DinoUnit : MonoBehaviour
     {
         Debug.Log($"{dinoName} attacks {target.dinoName}!");
         target.TakeDamage(attackPower);
-        hasAttacked = true;
+        hasAttacked = true; // Only one attack per turn
 
         // Update highlight to show unit is done
         if (HasFinishedTurn && GameManager.Instance != null && GameManager.Instance.selectedUnit == this)
         {
             Highlight(new Color(0.5f, 0.5f, 0.5f, 1f)); // Gray out when done
         }
+    }
+
+    // Charge attack - deals 10 damage, doesn't count as attack
+    public void ChargeAttack(DinoUnit target)
+    {
+        Debug.Log($"{dinoName} charges into {target.dinoName} for 10 damage!");
+        target.TakeDamage(10);
+        // DON'T set hasAttacked = true, because Charge doesn't count as an attack
     }
 
     // Move along a path tile by tile
@@ -246,12 +277,6 @@ public class DinoUnit : MonoBehaviour
         isMoving = false;
 
         Debug.Log($"{dinoName} finished moving to ({currentTile.x}, {currentTile.z})");
-
-        // After moving, show attack range if unit can still attack
-        if (GameManager.Instance != null && GameManager.Instance.selectedUnit == this && CanAttack)
-        {
-            GameManager.Instance.ShowAttackRange();
-        }
     }
 
     // Instant move (for compatibility)
@@ -297,6 +322,7 @@ public class DinoUnit : MonoBehaviour
     {
         hasMoved = false;
         hasAttacked = false;
+        isDefending = false;
         Debug.Log($"{dinoName} turn reset - can move and attack again");
     }
 }

@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 public enum GameState
 {
@@ -20,6 +21,9 @@ public class GameManager : MonoBehaviour
     public List<DinoUnit> enemyUnits = new List<DinoUnit>();
 
     private List<Tile> highlightedTiles = new List<Tile>();
+    private CardType currentCardMode = CardType.Attack;
+    private bool isPlayingCard = false;
+    private bool waitingForChargeTarget = false;
 
     void Awake()
     {
@@ -28,7 +32,6 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
-        // Wait a frame for all units to initialize
         Invoke("Initialize", 0.3f);
     }
 
@@ -65,6 +68,11 @@ public class GameManager : MonoBehaviour
             if (unit != null)
                 unit.ResetTurn();
         }
+
+        if (HandManager.Instance != null)
+        {
+            HandManager.Instance.DrawCards(2, false);
+        }
     }
 
     public void EndPlayerTurn()
@@ -72,7 +80,6 @@ public class GameManager : MonoBehaviour
         Debug.Log("=== PLAYER TURN END ===");
         currentState = GameState.EnemyTurn;
 
-        // Clear highlights and deselect
         ClearHighlights();
         if (selectedUnit != null)
         {
@@ -80,10 +87,18 @@ public class GameManager : MonoBehaviour
             selectedUnit = null;
         }
 
+        isPlayingCard = false;
+        waitingForChargeTarget = false;
+
         foreach (var unit in enemyUnits)
         {
             if (unit != null)
                 unit.ResetTurn();
+        }
+
+        if (HandManager.Instance != null)
+        {
+            HandManager.Instance.DrawCards(2, true);
         }
 
         Invoke("ExecuteEnemyTurn", 1f);
@@ -98,9 +113,8 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("=== ENEMY TURN START ===");
 
-        bool anyEnemyActed = false;
+        List<Card> aiHand = HandManager.Instance != null ? HandManager.Instance.GetAIHand() : new List<Card>();
 
-        // Each enemy: move then attack if possible
         foreach (var enemy in enemyUnits)
         {
             if (enemy == null) continue;
@@ -111,12 +125,18 @@ public class GameManager : MonoBehaviour
             int dist = GetDistance(enemy.currentTile, nearestTarget.currentTile);
             Debug.Log($"{enemy.dinoName} is {dist} tiles away from {nearestTarget.dinoName}");
 
-            // Try to move if haven't moved yet and not in attack range
+            // AI uses cards
+            if (aiHand.Count > 0)
+            {
+                yield return StartCoroutine(AIUseCards(enemy, nearestTarget, aiHand));
+            }
+
+            dist = GetDistance(enemy.currentTile, nearestTarget.currentTile);
+
+            // Move
             if (enemy.CanMove && dist > enemy.attackRange)
             {
                 List<Tile> tilesInRange = Pathfinding.Instance.GetTilesInRange(enemy.currentTile, enemy.moveRange);
-
-                // Find the tile in range that's closest to target
                 Tile bestTile = null;
                 int bestDist = int.MaxValue;
 
@@ -132,14 +152,10 @@ public class GameManager : MonoBehaviour
 
                 if (bestTile != null)
                 {
-                    Debug.Log($"{enemy.dinoName} moving closer to {nearestTarget.dinoName}");
                     List<Tile> path = Pathfinding.Instance.FindPath(enemy.currentTile, bestTile);
                     if (path != null && path.Count > 0)
                     {
                         enemy.MoveAlongPath(path);
-                        anyEnemyActed = true;
-
-                        // Wait for movement to complete
                         while (enemy.isMoving)
                         {
                             yield return null;
@@ -147,27 +163,24 @@ public class GameManager : MonoBehaviour
                     }
                 }
 
-                // Recalculate distance after moving
                 dist = GetDistance(enemy.currentTile, nearestTarget.currentTile);
             }
 
-            // Small delay between actions
             yield return new WaitForSeconds(0.3f);
 
-            // Try to attack if in range and haven't attacked
+            // Attack
             if (enemy.CanAttack && dist <= enemy.attackRange)
             {
-                Debug.Log($"{enemy.dinoName} attacking {nearestTarget.dinoName}!");
-                enemy.Attack(nearestTarget);
-                anyEnemyActed = true;
+                Card attackCard = aiHand.FirstOrDefault(c => c.cardType == CardType.Attack);
+                if (attackCard != null)
+                {
+                    Debug.Log($"{enemy.dinoName} using Attack card!");
+                    HandManager.Instance.AIPlayCard(attackCard, enemy, nearestTarget, null);
+                    aiHand.Remove(attackCard);
+                }
 
                 yield return new WaitForSeconds(0.5f);
             }
-        }
-
-        if (!anyEnemyActed)
-        {
-            Debug.Log("No enemies could act this turn");
         }
 
         Debug.Log("=== ENEMY TURN END ===");
@@ -175,120 +188,266 @@ public class GameManager : MonoBehaviour
         StartPlayerTurn();
     }
 
+    IEnumerator AIUseCards(DinoUnit enemy, DinoUnit target, List<Card> aiHand)
+    {
+        // 1. Defend if low HP
+        if (enemy.currentHealth < enemy.maxHealth / 3)
+        {
+            Card defendCard = aiHand.FirstOrDefault(c => c.cardType == CardType.Defend);
+            if (defendCard != null)
+            {
+                Debug.Log($"AI {enemy.dinoName} uses Defend");
+                HandManager.Instance.AIPlayCard(defendCard, enemy, null, null);
+                aiHand.Remove(defendCard);
+                yield return new WaitForSeconds(0.5f);
+            }
+        }
+
+        // 2. Medicine if damaged
+        if (enemy.currentHealth < enemy.maxHealth)
+        {
+            Card medicineCard = aiHand.FirstOrDefault(c => c.cardType == CardType.Medicine);
+            if (medicineCard != null)
+            {
+                Debug.Log($"AI {enemy.dinoName} uses Medicine");
+                HandManager.Instance.AIPlayCard(medicineCard, enemy, null, null);
+                aiHand.Remove(medicineCard);
+                yield return new WaitForSeconds(0.5f);
+            }
+        }
+
+        // 3. Charge if beneficial
+        int dist = GetDistance(enemy.currentTile, target.currentTile);
+        if (dist > enemy.attackRange && dist <= 6)
+        {
+            Card chargeCard = aiHand.FirstOrDefault(c => c.cardType == CardType.Charge);
+            if (chargeCard != null)
+            {
+                Tile chargeTile = FindBestChargeTarget(enemy, target);
+                if (chargeTile != null)
+                {
+                    Debug.Log($"AI {enemy.dinoName} uses Charge!");
+                    List<Tile> path = Pathfinding.Instance.FindPath(enemy.currentTile, chargeTile);
+                    if (path != null && path.Count > 0)
+                    {
+                        enemy.MoveAlongPath(path);
+                        while (enemy.isMoving)
+                        {
+                            yield return null;
+                        }
+
+                        enemy.ChargeAttack(target);
+                        HandManager.Instance.AIPlayCard(chargeCard, enemy, target, chargeTile);
+                        aiHand.Remove(chargeCard);
+                        yield return new WaitForSeconds(0.5f);
+                    }
+                }
+            }
+        }
+    }
+
+    Tile FindBestChargeTarget(DinoUnit charger, DinoUnit target)
+    {
+        List<Tile> tilesInRange = Pathfinding.Instance.GetTilesInRange(charger.currentTile, 5);
+        Tile[] adjacentToTarget = new Tile[]
+        {
+            GridManager.Instance.GetTile(target.currentTile.x + 1, target.currentTile.z),
+            GridManager.Instance.GetTile(target.currentTile.x - 1, target.currentTile.z),
+            GridManager.Instance.GetTile(target.currentTile.x, target.currentTile.z + 1),
+            GridManager.Instance.GetTile(target.currentTile.x, target.currentTile.z - 1)
+        };
+
+        foreach (Tile adjTile in adjacentToTarget)
+        {
+            if (adjTile != null && adjTile.occupyingUnit == null && tilesInRange.Contains(adjTile))
+            {
+                return adjTile;
+            }
+        }
+        return null;
+    }
+
+    public void SetCardMode(CardType cardType)
+    {
+        currentCardMode = cardType;
+        isPlayingCard = (cardType == CardType.Attack || cardType == CardType.Charge);
+
+        if (cardType == CardType.Attack && selectedUnit != null)
+        {
+            ShowAttackRange();
+        }
+    }
+
+    public void ClearCardMode()
+    {
+        isPlayingCard = false;
+        waitingForChargeTarget = false;
+        currentCardMode = CardType.Attack;
+    }
+
+    public void ShowChargeRange(DinoUnit unit)
+    {
+        ClearHighlights();
+        List<Tile> tilesInRange = Pathfinding.Instance.GetTilesInRange(unit.currentTile, 5);
+
+        foreach (Tile tile in tilesInRange)
+        {
+            if (tile.occupyingUnit != null) continue;
+            if (IsAdjacentToEnemy(tile, unit.team))
+            {
+                tile.HighlightTile(new Color(1f, 0.8f, 0.2f, 0.6f));
+                highlightedTiles.Add(tile);
+            }
+        }
+    }
+
+    bool IsAdjacentToEnemy(Tile tile, Team playerTeam)
+    {
+        Tile[] adjacentTiles = new Tile[]
+        {
+            GridManager.Instance.GetTile(tile.x + 1, tile.z),
+            GridManager.Instance.GetTile(tile.x - 1, tile.z),
+            GridManager.Instance.GetTile(tile.x, tile.z + 1),
+            GridManager.Instance.GetTile(tile.x, tile.z - 1)
+        };
+
+        foreach (Tile adjTile in adjacentTiles)
+        {
+            if (adjTile != null && adjTile.occupyingUnit != null && adjTile.occupyingUnit.team != playerTeam)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void OnTileClicked(Tile tile)
     {
-        Debug.Log($"Tile clicked: ({tile.x}, {tile.z})");
+        if (selectedUnit == null) return;
 
-        if (selectedUnit == null)
+        if (isPlayingCard && currentCardMode == CardType.Charge && !waitingForChargeTarget)
         {
-            Debug.Log("No unit selected");
-            return;
-        }
-
-        Debug.Log($"Selected unit: {selectedUnit.dinoName} (Moved: {selectedUnit.hasMoved}, Attacked: {selectedUnit.hasAttacked})");
-
-        // Check if clicking on an enemy to attack
-        if (tile.occupyingUnit != null && tile.occupyingUnit.team != selectedUnit.team)
-        {
-            if (!selectedUnit.CanAttack)
+            if (highlightedTiles.Contains(tile) && tile.occupyingUnit == null)
             {
-                Debug.Log("Already attacked this turn!");
-                return;
-            }
-
-            int dist = GetDistance(selectedUnit.currentTile, tile);
-            Debug.Log($"Distance to enemy: {dist}, Attack range: {selectedUnit.attackRange}");
-
-            if (dist <= selectedUnit.attackRange)
-            {
-                Debug.Log("Attacking enemy!");
-                selectedUnit.Attack(tile.occupyingUnit);
-
-                // If unit is done, deselect, otherwise show movement range
-                if (selectedUnit.HasFinishedTurn)
-                {
-                    ClearHighlights();
-                    DeselectUnit();
-                }
-                else if (!selectedUnit.hasMoved)
-                {
-                    ClearHighlights();
-                    HighlightMovementRange();
-                }
-            }
-            else
-            {
-                Debug.Log("Too far to attack!");
-            }
-            return;
-        }
-
-        // Check if clicking on a friendly unit
-        if (tile.occupyingUnit != null && tile.occupyingUnit.team == selectedUnit.team)
-        {
-            Debug.Log("Selecting another friendly unit");
-            SelectUnit(tile.occupyingUnit);
-            return;
-        }
-
-        // Try to move to empty tile
-        if (tile.occupyingUnit == null)
-        {
-            if (!selectedUnit.CanMove)
-            {
-                Debug.Log("Already moved this turn!");
-                return;
-            }
-
-            // Check if tile is in highlighted range
-            if (highlightedTiles.Contains(tile))
-            {
-                Debug.Log("Moving unit along path!");
                 List<Tile> path = Pathfinding.Instance.FindPath(selectedUnit.currentTile, tile);
-
                 if (path != null && path.Count > 0)
                 {
                     ClearHighlights();
                     selectedUnit.MoveAlongPath(path);
-                    // Don't deselect - unit can still attack after moving
-                }
-                else
-                {
-                    Debug.Log("No path found!");
+                    StartCoroutine(ShowChargeTargetsAfterMove(selectedUnit, tile));
                 }
             }
-            else
+            return;
+        }
+
+        if (tile.occupyingUnit != null && tile.occupyingUnit.team != selectedUnit.team)
+        {
+            if (waitingForChargeTarget)
             {
-                Debug.Log("Tile not in movement range!");
+                int dist = GetDistance(selectedUnit.currentTile, tile);
+                if (dist == 1)
+                {
+                    selectedUnit.ChargeAttack(tile.occupyingUnit);
+                    HandManager.Instance.PlayCard(selectedUnit, tile.occupyingUnit, null);
+                    ClearHighlights();
+                    isPlayingCard = false;
+                    waitingForChargeTarget = false;
+                }
+                return;
             }
+
+            if (isPlayingCard && currentCardMode == CardType.Attack)
+            {
+                if (!selectedUnit.hasAttacked)
+                {
+                    int dist = GetDistance(selectedUnit.currentTile, tile);
+                    if (dist <= selectedUnit.attackRange)
+                    {
+                        HandManager.Instance.PlayCard(selectedUnit, tile.occupyingUnit, null);
+                        ClearHighlights();
+                        isPlayingCard = false;
+                    }
+                }
+            }
+            return;
+        }
+
+        if (tile.occupyingUnit != null && tile.occupyingUnit.team == selectedUnit.team)
+        {
+            SelectUnit(tile.occupyingUnit);
+            return;
+        }
+
+        if (tile.occupyingUnit == null && !isPlayingCard)
+        {
+            if (!selectedUnit.CanMove) return;
+
+            if (highlightedTiles.Contains(tile))
+            {
+                List<Tile> path = Pathfinding.Instance.FindPath(selectedUnit.currentTile, tile);
+                if (path != null && path.Count > 0)
+                {
+                    ClearHighlights();
+                    selectedUnit.MoveAlongPath(path);
+                }
+            }
+        }
+    }
+
+    IEnumerator ShowChargeTargetsAfterMove(DinoUnit charger, Tile targetTile)
+    {
+        while (charger.isMoving)
+        {
+            yield return null;
+        }
+
+        Tile[] adjacentTiles = new Tile[]
+        {
+            GridManager.Instance.GetTile(targetTile.x + 1, targetTile.z),
+            GridManager.Instance.GetTile(targetTile.x - 1, targetTile.z),
+            GridManager.Instance.GetTile(targetTile.x, targetTile.z + 1),
+            GridManager.Instance.GetTile(targetTile.x, targetTile.z - 1)
+        };
+
+        List<DinoUnit> adjacentEnemies = new List<DinoUnit>();
+        foreach (Tile adjTile in adjacentTiles)
+        {
+            if (adjTile != null && adjTile.occupyingUnit != null && adjTile.occupyingUnit.team != charger.team)
+            {
+                adjacentEnemies.Add(adjTile.occupyingUnit);
+                adjTile.HighlightTile(new Color(1f, 0.3f, 0.3f, 0.8f));
+                highlightedTiles.Add(adjTile);
+            }
+        }
+
+        if (adjacentEnemies.Count > 0)
+        {
+            waitingForChargeTarget = true;
+        }
+        else
+        {
+            HandManager.Instance.PlayCard(charger, null, targetTile);
+            isPlayingCard = false;
         }
     }
 
     public void SelectUnit(DinoUnit unit)
     {
-        // Clear previous highlights
         ClearHighlights();
+        isPlayingCard = false;
+        waitingForChargeTarget = false;
 
-        // Deselect previous unit
         if (selectedUnit != null)
             selectedUnit.ResetColor();
 
-        // Select new unit
         selectedUnit = unit;
 
         if (selectedUnit != null && !selectedUnit.HasFinishedTurn)
         {
-            Debug.Log($">>> Selected: {unit.dinoName} <<<");
-            selectedUnit.Highlight(new Color(1f, 1f, 0.5f, 1f)); // Yellow highlight
-
-            // Show appropriate range based on state
+            selectedUnit.Highlight(new Color(1f, 1f, 0.5f, 1f));
             if (selectedUnit.CanMove)
             {
                 HighlightMovementRange();
-            }
-            else if (selectedUnit.CanAttack)
-            {
-                ShowAttackRange();
             }
         }
     }
@@ -296,24 +455,18 @@ public class GameManager : MonoBehaviour
     void HighlightMovementRange()
     {
         if (selectedUnit == null || Pathfinding.Instance == null) return;
-
         highlightedTiles = Pathfinding.Instance.GetTilesInRange(selectedUnit.currentTile, selectedUnit.moveRange);
-
         foreach (Tile tile in highlightedTiles)
         {
-            tile.HighlightTile(new Color(0.5f, 0.8f, 1f, 0.6f)); // Light blue
+            tile.HighlightTile(new Color(0.5f, 0.8f, 1f, 0.6f));
         }
-
-        Debug.Log($"Highlighted {highlightedTiles.Count} movement tiles");
     }
 
     public void ShowAttackRange()
     {
         if (selectedUnit == null) return;
-
         ClearHighlights();
 
-        // Highlight tiles in attack range
         for (int x = -selectedUnit.attackRange; x <= selectedUnit.attackRange; x++)
         {
             for (int z = -selectedUnit.attackRange; z <= selectedUnit.attackRange; z++)
@@ -323,22 +476,19 @@ public class GameManager : MonoBehaviour
                     Tile tile = GridManager.Instance.GetTile(selectedUnit.currentTile.x + x, selectedUnit.currentTile.z + z);
                     if (tile != null && tile != selectedUnit.currentTile)
                     {
-                        // Red highlight for enemy tiles, orange for empty
                         if (tile.occupyingUnit != null && tile.occupyingUnit.team != selectedUnit.team)
                         {
-                            tile.HighlightTile(new Color(1f, 0.3f, 0.3f, 0.7f)); // Red
+                            tile.HighlightTile(new Color(1f, 0.3f, 0.3f, 0.7f));
                         }
                         else if (tile.occupyingUnit == null)
                         {
-                            tile.HighlightTile(new Color(1f, 0.6f, 0.2f, 0.5f)); // Orange
+                            tile.HighlightTile(new Color(1f, 0.6f, 0.2f, 0.5f));
                         }
                         highlightedTiles.Add(tile);
                     }
                 }
             }
         }
-
-        Debug.Log($"Highlighted {highlightedTiles.Count} attack tiles");
     }
 
     void ClearHighlights()
@@ -356,29 +506,38 @@ public class GameManager : MonoBehaviour
         if (selectedUnit != null)
             selectedUnit.ResetColor();
         selectedUnit = null;
-        Debug.Log("Unit deselected");
+        isPlayingCard = false;
+        waitingForChargeTarget = false;
     }
 
     public void TryAttackUnit(DinoUnit target)
     {
         if (selectedUnit == null || target == null) return;
         if (selectedUnit.team == target.team) return;
+
+        if (waitingForChargeTarget)
+        {
+            int dist = GetDistance(selectedUnit.currentTile, target.currentTile);
+            if (dist == 1)
+            {
+                selectedUnit.ChargeAttack(target);
+                HandManager.Instance.PlayCard(selectedUnit, target, null);
+                ClearHighlights();
+                isPlayingCard = false;
+                waitingForChargeTarget = false;
+            }
+            return;
+        }
+
+        if (!isPlayingCard || currentCardMode != CardType.Attack) return;
         if (!selectedUnit.CanAttack) return;
 
-        int dist = GetDistance(selectedUnit.currentTile, target.currentTile);
-        if (dist <= selectedUnit.attackRange)
+        int distance = GetDistance(selectedUnit.currentTile, target.currentTile);
+        if (distance <= selectedUnit.attackRange)
         {
-            selectedUnit.Attack(target);
-
-            if (selectedUnit.HasFinishedTurn)
-            {
-                ClearHighlights();
-                DeselectUnit();
-            }
-        }
-        else
-        {
-            Debug.Log("Target out of range!");
+            HandManager.Instance.PlayCard(selectedUnit, target, null);
+            ClearHighlights();
+            isPlayingCard = false;
         }
     }
 
@@ -390,7 +549,6 @@ public class GameManager : MonoBehaviour
         foreach (var target in targets)
         {
             if (target == null || target.currentTile == null) continue;
-
             int dist = GetDistance(unit.currentTile, target.currentTile);
             if (dist < minDist)
             {
@@ -398,7 +556,6 @@ public class GameManager : MonoBehaviour
                 nearest = target;
             }
         }
-
         return nearest;
     }
 
@@ -410,18 +567,14 @@ public class GameManager : MonoBehaviour
 
     void Update()
     {
-        // Check for keyboard input using new Input System
         if (currentState == GameState.PlayerTurn)
         {
-            // End turn with E key
             if (UnityEngine.InputSystem.Keyboard.current != null &&
                 UnityEngine.InputSystem.Keyboard.current.eKey.wasPressedThisFrame)
             {
-                Debug.Log("E pressed - ending turn");
                 EndPlayerTurn();
             }
 
-            // Deselect with Escape key
             if (UnityEngine.InputSystem.Keyboard.current != null &&
                 UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
             {
