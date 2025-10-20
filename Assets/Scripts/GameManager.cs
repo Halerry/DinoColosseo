@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -168,7 +168,6 @@ public class GameManager : MonoBehaviour
 
             yield return new WaitForSeconds(0.3f);
 
-            // Attack
             if (enemy.CanAttack && dist <= enemy.attackRange)
             {
                 Card attackCard = aiHand.FirstOrDefault(c => c.cardType == CardType.Attack);
@@ -177,6 +176,15 @@ public class GameManager : MonoBehaviour
                     Debug.Log($"{enemy.dinoName} using Attack card!");
                     HandManager.Instance.AIPlayCard(attackCard, enemy, nearestTarget, null);
                     aiHand.Remove(attackCard);
+
+                    // Wait for reaction to complete
+                    if (ReactionManager.Instance != null)
+                    {
+                        while (ReactionManager.Instance.IsWaitingForReaction())
+                        {
+                            yield return null;
+                        }
+                    }
                 }
 
                 yield return new WaitForSeconds(0.5f);
@@ -564,11 +572,29 @@ public class GameManager : MonoBehaviour
         if (a == null || b == null) return int.MaxValue;
         return Mathf.Abs(a.x - b.x) + Mathf.Abs(a.z - b.z);
     }
+    public void OnReactionComplete()
+    {
+        Debug.Log("Reaction complete, continuing game...");
+
+        // Update highlight if unit is done
+        if (selectedUnit != null && selectedUnit.HasFinishedTurn)
+        {
+            selectedUnit.Highlight(new Color(0.5f, 0.5f, 0.5f, 1f));
+        }
+
+        // DON'T start player turn here - let the enemy turn coroutine finish naturally
+    }
 
     void Update()
     {
         if (currentState == GameState.PlayerTurn)
         {
+            // Don't allow ending turn while waiting for reaction
+            if (ReactionManager.Instance != null && ReactionManager.Instance.IsWaitingForReaction())
+            {
+                return;
+            }
+
             if (UnityEngine.InputSystem.Keyboard.current != null &&
                 UnityEngine.InputSystem.Keyboard.current.eKey.wasPressedThisFrame)
             {

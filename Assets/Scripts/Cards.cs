@@ -1,4 +1,5 @@
 using UnityEngine;
+using static UnityEngine.GraphicsBuffer;
 
 public enum CardType
 {
@@ -24,7 +25,7 @@ public class Card
         {
             case CardType.Attack:
                 cardName = "Attack";
-                description = "Deal damage to an enemy in range";
+                description = "Attack the enemy ";
                 break;
             case CardType.Defend:
                 cardName = "Defend";
@@ -48,8 +49,18 @@ public class Card
             case CardType.Attack:
                 if (target != null && target.team != caster.team)
                 {
-                    Debug.Log($"{caster.dinoName} uses Attack card on {target.dinoName}!");
-                    caster.Attack(target);
+                    Debug.Log($"{caster.dinoName} initiates Attack card on {target.dinoName}!");
+
+                    // Use ReactionManager instead of direct attack
+                    if (ReactionManager.Instance != null)
+                    {
+                        ReactionManager.Instance.InitiateAttack(caster, target, caster.attackPower);
+                    }
+                    else
+                    {
+                        // Fallback if ReactionManager doesn't exist
+                        caster.Attack(target);
+                    }
                 }
                 break;
 

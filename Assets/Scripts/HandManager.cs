@@ -1,5 +1,6 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 
 public class HandManager : MonoBehaviour
 {
@@ -193,6 +194,12 @@ public class HandManager : MonoBehaviour
         // Play the card effect
         selectedCard.PlayCard(caster, target, targetTile);
 
+        // *** ADD THIS: Show the card in LastCardDisplay ***
+        if (LastCardDisplay.Instance != null)
+        {
+            LastCardDisplay.Instance.ShowCard(selectedCard, caster.dinoName);
+        }
+
         // Remove card from hand
         playerHand.Remove(selectedCard);
 
@@ -230,6 +237,12 @@ public class HandManager : MonoBehaviour
         // Play the card effect
         card.PlayCard(caster, target, targetTile);
 
+        // *** ADD THIS: Show the card in LastCardDisplay ***
+        if (LastCardDisplay.Instance != null)
+        {
+            LastCardDisplay.Instance.ShowCard(card, $"Enemy {caster.dinoName}");
+        }
+
         // Remove from AI hand
         aiHand.Remove(card);
 
@@ -259,5 +272,39 @@ public class HandManager : MonoBehaviour
     public Card GetSelectedCard()
     {
         return selectedCard;
+    }
+
+    // ADD THESE TWO NEW METHODS HERE:
+    public List<Card> GetPlayerHand()
+    {
+        return new List<Card>(playerHand);
+    }
+
+    public void RemoveCardFromHand(Card card)
+    {
+        Debug.Log($"🗑️ Attempting to remove {card.cardName} from hand");
+
+        if (playerHand.Contains(card))
+        {
+            playerHand.Remove(card);
+
+            CardUI cardUIToRemove = cardUIList.FirstOrDefault(ui => ui.GetCard() == card);
+            if (cardUIToRemove != null)
+            {
+                cardUIList.Remove(cardUIToRemove);
+                Destroy(cardUIToRemove.gameObject);
+            }
+
+            if (DeckManager.Instance != null)
+            {
+                DeckManager.Instance.DiscardCard(card);
+            }
+
+            Debug.Log($"✓ Removed {card.cardName} from hand. Hand now has {playerHand.Count} cards");
+        }
+        else
+        {
+            Debug.LogWarning($"⚠️ Card {card.cardName} not found in hand!");
+        }
     }
 }

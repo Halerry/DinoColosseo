@@ -21,21 +21,6 @@ public class LastCardDisplay : MonoBehaviour
     void Awake()
     {
         Instance = this;
-
-        // Hide panel by default
-        gameObject.SetActive(false);
-    }
-
-    void Update()
-    {
-        if (isShowing)
-        {
-            hideTimer -= Time.deltaTime;
-            if (hideTimer <= 0f)
-            {
-                HideCard();
-            }
-        }
     }
 
     public void ShowCard(Card card, string playerName)
