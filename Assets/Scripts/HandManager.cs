@@ -143,8 +143,11 @@ public class HandManager : MonoBehaviour
 
         DinoUnit selectedUnit = GameManager.Instance.selectedUnit;
 
-        // Only check attack limit for Attack cards
-        if (card.cardType == CardType.Attack && selectedUnit.hasAttacked)
+        bool hasMekaLeg = EquipmentManager.Instance != null &&
+                   EquipmentManager.Instance.HasEquipment(selectedUnit, EquipmentType.MekaLeg);
+
+        // Only check attack limit for Attack cards WITHOUT Meka Leg
+        if (card.cardType == CardType.Attack && selectedUnit.hasAttacked && !hasMekaLeg)
         {
             Debug.Log("Already attacked this turn! Only ONE attack per turn.");
             return;
@@ -177,6 +180,11 @@ public class HandManager : MonoBehaviour
                 GameManager.Instance.SetCardMode(CardType.Charge);
                 GameManager.Instance.ShowChargeRange(selectedUnit);
                 Debug.Log(">>> Click a tile next to an enemy to charge! <<<");
+                break;
+
+            case CardType.Equipment:
+                Debug.Log(">>> Equipping card! <<<");
+                PlayCard(selectedUnit, null, null);
                 break;
         }
     }

@@ -78,11 +78,62 @@ public class ReactionManager : MonoBehaviour
         // Check if defender is player or AI
         if (defender.team == Team.Player)
         {
+            // Check for Protection Gem - 33% chance to auto-defend
+            bool hasProtectionGem = EquipmentManager.Instance != null &&
+                                    EquipmentManager.Instance.HasEquipment(defender, EquipmentType.ProtectionGem);
+
+            Debug.Log($"Has Protection Gem: {hasProtectionGem}");
+
+            if (hasProtectionGem)
+            {
+                float roll = Random.value;
+                Debug.Log($"Protection Gem roll: {roll} (needs < 0.33 to activate)");
+
+                if (roll < 0.33f)
+                {
+                    // Protection Gem triggered!
+                    Debug.Log($" {defender.dinoName}'s Protection Gem activated! Auto-defending!");
+                    defender.isDefending = true;
+
+                    // Show it in LastCardDisplay
+                    if (LastCardDisplay.Instance != null)
+                    {
+                        // Create a temporary defend card to show
+                        Card defendCard = new Card(CardType.Defend);
+                        LastCardDisplay.Instance.ShowCard(defendCard, $"{defender.dinoName} (Protection Gem)");
+                    }
+
+                    ResolveAttack(true);
+                    return; // STOP HERE - don't show reaction panel!
+                }
+            }
+
             // Player is being attacked - show reaction UI
             ShowReactionUI();
         }
         else
         {
+            // Check for AI Protection Gem
+            bool hasProtectionGem = EquipmentManager.Instance != null &&
+                                    EquipmentManager.Instance.HasEquipment(defender, EquipmentType.ProtectionGem);
+
+            if (hasProtectionGem && Random.value < 0.33f)
+            {
+                // Protection Gem triggered for AI!
+                Debug.Log($"✨ AI {defender.dinoName}'s Protection Gem activated! Auto-defending!");
+                defender.isDefending = true;
+
+                // Show it in LastCardDisplay
+                if (LastCardDisplay.Instance != null)
+                {
+                    Card defendCard = new Card(CardType.Defend);
+                    LastCardDisplay.Instance.ShowCard(defendCard, $"Enemy {defender.dinoName} (Protection Gem)");
+                }
+
+                ResolveAttack(true);
+                return;
+            }
+
             // AI is being attacked - AI decides reaction
             StartCoroutine(AIReactionCoroutine());
         }
@@ -262,8 +313,20 @@ public class ReactionManager : MonoBehaviour
             defender.TakeDamage(incomingDamage);
         }
 
-        // Mark attacker as having attacked
-        attacker.hasAttacked = true;
+        // Check if attacker has Mecha Leg equipment
+        bool hasMechaLeg = EquipmentManager.Instance != null &&
+                           EquipmentManager.Instance.HasEquipment(attacker, EquipmentType.MekaLeg);
+
+        // Only mark as attacked if NO Mecha Leg
+        if (!hasMechaLeg)
+        {
+            attacker.hasAttacked = true;
+            Debug.Log($"{attacker.dinoName} has attacked - can't attack again this turn");
+        }
+        else
+        {
+            Debug.Log($"{attacker.dinoName} has Mecha Leg - can attack again!");
+        }
 
         // Notify GameManager that reaction is complete
         if (GameManager.Instance != null)

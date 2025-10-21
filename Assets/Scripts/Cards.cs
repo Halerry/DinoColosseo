@@ -1,22 +1,35 @@
 using UnityEngine;
-using static UnityEngine.GraphicsBuffer;
 
 public enum CardType
 {
     Attack,
     Defend,
     Medicine,
-    Charge
+    Charge,
+    Equipment // New!
+}
+
+public enum EquipmentType
+{
+    MekaLeg,
+    ProtectionGem,
+    // Add more equipment types here later
 }
 
 [System.Serializable]
 public class Card
 {
     public CardType cardType;
+    public EquipmentType equipmentType; // Only used if cardType == Equipment
     public string cardName;
     public string description;
     public Sprite cardSprite;
 
+    // Equipment-specific properties
+    public int maxUses = 0; // How many times equipment can be used (0 = infinite)
+    public int currentUses = 0; // Current remaining uses
+
+    // Constructor for regular cards
     public Card(CardType type)
     {
         cardType = type;
@@ -25,7 +38,7 @@ public class Card
         {
             case CardType.Attack:
                 cardName = "Attack";
-                description = "Attack the enemy ";
+                description = "Deal damage to an enemy in range";
                 break;
             case CardType.Defend:
                 cardName = "Defend";
@@ -33,11 +46,34 @@ public class Card
                 break;
             case CardType.Medicine:
                 cardName = "Medicine";
-                description = "Restore 1 HP";
+                description = "Restore 10 HP";
                 break;
             case CardType.Charge:
                 cardName = "Charge";
                 description = "Move up to 5 tiles and deal 10 damage to adjacent enemy";
+                break;
+        }
+    }
+
+    // Constructor for equipment cards
+    public Card(CardType type, EquipmentType equipment)
+    {
+        cardType = type;
+        equipmentType = equipment;
+
+        switch (equipment)
+        {
+            case EquipmentType.MekaLeg:
+                cardName = "Meka Leg";
+                description = "Allows multiple attacks per turn";
+                maxUses = 0; // Infinite uses (passive effect)
+                currentUses = 0;
+                break;
+            case EquipmentType.ProtectionGem:
+                cardName = "Protection Gem";
+                description = "33% chance to auto-defend when attacked";
+                maxUses = 0; // Infinite uses (passive effect)
+                currentUses = 0;
                 break;
         }
     }
@@ -51,14 +87,13 @@ public class Card
                 {
                     Debug.Log($"{caster.dinoName} initiates Attack card on {target.dinoName}!");
 
-                    // Use ReactionManager instead of direct attack
+                    // Use ReactionManager for attacks
                     if (ReactionManager.Instance != null)
                     {
                         ReactionManager.Instance.InitiateAttack(caster, target, caster.attackPower);
                     }
                     else
                     {
-                        // Fallback if ReactionManager doesn't exist
                         caster.Attack(target);
                     }
                 }
@@ -70,14 +105,21 @@ public class Card
                 break;
 
             case CardType.Medicine:
-                Debug.Log($"{caster.dinoName} uses Medicine card! +1 HP");
-                caster.Heal(1);
+                Debug.Log($"{caster.dinoName} uses Medicine card! +10 HP");
+                caster.Heal(10);
                 break;
 
             case CardType.Charge:
-                // Charge is handled by GameManager for movement
-                // Damage is dealt automatically to adjacent enemies
                 Debug.Log($"{caster.dinoName} uses Charge card!");
+                break;
+
+            case CardType.Equipment:
+                Debug.Log($"{caster.dinoName} equips {cardName}!");
+                // Equipment is handled by EquipmentManager
+                if (EquipmentManager.Instance != null)
+                {
+                    EquipmentManager.Instance.EquipCard(caster, this);
+                }
                 break;
         }
     }

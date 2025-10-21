@@ -5,8 +5,15 @@ public class DeckManager : MonoBehaviour
 {
     public static DeckManager Instance { get; private set; }
 
-    [Header("Deck Settings")]
-    public int cardsPerType = 10; // 10 of each card type
+    [Header("Deck Composition")]
+    public int attackCardCount = 10;
+    public int defendCardCount = 10;
+    public int medicineCardCount = 10;
+    public int chargeCardCount = 10;
+
+    [Header("Equipment Card Counts")]
+    public int mekaLegCount = 3;
+    public int protectionGemCount = 3;
 
     private List<Card> deck = new List<Card>();
     private List<Card> discardPile = new List<Card>();
@@ -21,13 +28,40 @@ public class DeckManager : MonoBehaviour
     {
         deck.Clear();
 
-        // Add cards of each type
-        for (int i = 0; i < cardsPerType; i++)
+        // Add Attack cards
+        for (int i = 0; i < attackCardCount; i++)
         {
             deck.Add(new Card(CardType.Attack));
+        }
+
+        // Add Defend cards
+        for (int i = 0; i < defendCardCount; i++)
+        {
             deck.Add(new Card(CardType.Defend));
+        }
+
+        // Add Medicine cards
+        for (int i = 0; i < medicineCardCount; i++)
+        {
             deck.Add(new Card(CardType.Medicine));
+        }
+
+        // Add Charge cards
+        for (int i = 0; i < chargeCardCount; i++)
+        {
             deck.Add(new Card(CardType.Charge));
+        }
+
+        // Add Mecha Leg equipment
+        for (int i = 0; i < mekaLegCount; i++)
+        {
+            deck.Add(new Card(CardType.Equipment, EquipmentType.MekaLeg));
+        }
+
+        // Add Protection Gem equipment
+        for (int i = 0; i < protectionGemCount; i++)
+        {
+            deck.Add(new Card(CardType.Equipment, EquipmentType.ProtectionGem));
         }
 
         ShuffleDeck();

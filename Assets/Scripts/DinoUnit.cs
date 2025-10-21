@@ -219,12 +219,23 @@ public class DinoUnit : MonoBehaviour
     {
         Debug.Log($"{dinoName} attacks {target.dinoName}!");
         target.TakeDamage(attackPower);
-        hasAttacked = true; // Only one attack per turn
 
-        // Update highlight to show unit is done
+        // Check if unit has Meka Leg equipment
+        bool hasMekaLeg = EquipmentManager.Instance != null &&
+                           EquipmentManager.Instance.HasEquipment(this, EquipmentType.MekaLeg);
+
+        if (!hasMekaLeg)
+        {
+            hasAttacked = true; // Only mark as attacked if no Meka Leg
+        }
+        else
+        {
+            Debug.Log($"{dinoName} has Meka Leg - can attack again!");
+        }
+        // Update highlight to show unit is done (if applicable)
         if (HasFinishedTurn && GameManager.Instance != null && GameManager.Instance.selectedUnit == this)
         {
-            Highlight(new Color(0.5f, 0.5f, 0.5f, 1f)); // Gray out when done
+            Highlight(new Color(0.5f, 0.5f, 0.5f, 1f));
         }
     }
 
@@ -300,6 +311,12 @@ public class DinoUnit : MonoBehaviour
     {
         Debug.Log($"{dinoName} has been defeated!");
 
+        // Clear equipment
+        if (EquipmentManager.Instance != null)
+        {
+            EquipmentManager.Instance.ClearEquipment(this);
+        }
+
         // Destroy health bar first
         if (healthBar != null && healthBar.gameObject != null)
         {
@@ -309,7 +326,6 @@ public class DinoUnit : MonoBehaviour
         if (currentTile != null)
             currentTile.occupyingUnit = null;
 
-        // If this was the selected unit, deselect it
         if (GameManager.Instance != null && GameManager.Instance.selectedUnit == this)
         {
             GameManager.Instance.SelectUnit(null);

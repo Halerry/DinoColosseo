@@ -48,6 +48,10 @@ public class CardUI : MonoBehaviour
                 case CardType.Charge:
                     cardColor = chargeColor;
                     break;
+                // In the SetCard method, add this case in the switch statement:
+                case CardType.Equipment:
+                    cardColor = new Color(1f, 0.5f, 0f);
+                    break;
             }
 
             if (cardImage != null)
